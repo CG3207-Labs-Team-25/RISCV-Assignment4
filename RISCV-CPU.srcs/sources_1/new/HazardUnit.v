@@ -23,6 +23,7 @@ module HazardUnit(
     input [1:0] MemtoReg_M,
     input [1:0] MemtoReg_W,
     input [1:0] PCSrc_E,
+    input Mispredict,
     output LoadStall,
     output Redirect_E,
     output StallF,
@@ -48,8 +49,8 @@ module HazardUnit(
     assign Redirect_E = Valid_E && !RESET && !Busy && (PCSrc_E != 2'b00);
     assign StallF = Busy || LoadStall;
     assign StallD = Busy || LoadStall;
-    assign FlushD = Redirect_E;
-    assign FlushE = !Busy && (LoadStall || Redirect_E);
+    assign FlushD = Redirect_E || Mispredict;
+    assign FlushE = !Busy && (LoadStall || Redirect_E || Mispredict);
     assign Forward1D = WE_W && (rd_W != 0) && (rs1_D == rd_W);
     assign Forward2D = WE_W && (rd_W != 0) && (rs2_D == rd_W);
     assign ForwardM = Valid_M && MemWrite_M && WE_W && (MemtoReg_W == 2'b10) &&

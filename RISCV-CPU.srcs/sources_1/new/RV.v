@@ -132,6 +132,7 @@ module RV #(
     wire WE_PC;
     reg [31:0] PC_Base;
     reg [31:0] PC_Offset;
+    wire [31:0] PC_ALU;
     wire [31:0] PC_IN;
     wire [31:0] PC_Sum;
     reg [4:0] rs1_E = 0;
@@ -157,6 +158,8 @@ module RV #(
     reg OperandsHeld_E = 0;
     reg [31:0] HeldRD1_E = 0;
     reg [31:0] HeldRD2_E = 0;
+    wire Mispredict;
+    wire [31:0] PrPC_F;
 
     assign Instr_F = Instr;
     assign PC = PC_F;
@@ -191,6 +194,7 @@ module RV #(
         .MemtoReg_M(MemtoReg_M),
         .MemtoReg_W(MemtoReg_W),
         .PCSrc_E(PCSrc_E),
+        .Mispredict(Mispredict),
         .LoadStall(LoadStall),
         .Redirect_E(Redirect_E),
         .StallF(StallF),
@@ -454,23 +458,24 @@ module RV #(
     always @(*) begin
         PC_Offset = 32'd4;
         case (PCSrc_E)
-            2'b00: PC_Base = PC_F;
+            2'b00: PC_Base = PC_E;
             2'b01: begin
                 PC_Base = PC_E;
                 PC_Offset = ExtImm_E;
             end
-            2'b10: PC_Base = Operand1_E;
+            2'b10: PC_Base = ForwardRD1_E;
             2'b11: begin
-                PC_Base = Operand1_E;
+                PC_Base = ForwardRD1_E;
                 PC_Offset = ExtImm_E;
             end
-            default: PC_Base = PC_F;
+            default: PC_Base = PC_E;
         endcase
     end
 
     assign PC_Sum = PC_Base + PC_Offset;
-    assign PC_IN = {PC_Sum[31:1], PC_Sum[0] & ~PCSrc_E[1]};
+    assign PC_ALU = {PC_Sum[31:1], PC_Sum[0] & ~PCSrc_E[1]};
     assign WE_PC = !StallF;
+    assign PC_IN = (Mispredict) ? PC_ALU : PrPC_F;
 
     ProgramCounter #(.PC_INIT(PC_INIT)) ProgramCounter1(
         CLK,
@@ -479,4 +484,16 @@ module RV #(
         PC_IN,
         PC_F
     );
+
+    BranchPrediction #(.ADDRESS_BITS(8)) BranchPredictor1(
+        CLK,
+        RESET,
+        PC_ALU, // PCNextE
+        PC_F,
+        PC_E,
+        PCSrc_E,
+        Mispredict,
+        PrPC_F
+    );
+
 endmodule
