@@ -139,6 +139,19 @@ component DebugSnapshot is
 end component;
 signal Display_State : std_logic_vector(767 downto 0);
 signal Snapshot_Updated : std_logic;
+component PipelineDisplay is
+    generic (DEBOUNCE_CYCLES : integer := 1000000);
+    port (CLK, RESET, Left, Right : in std_logic;
+        Snapshot : in std_logic_vector(767 downto 0);
+        PixelWrite : out std_logic;
+        PixelColumn : out std_logic_vector(6 downto 0);
+        PixelRow : out std_logic_vector(5 downto 0);
+        PixelData : out std_logic_vector(15 downto 0));
+end component;
+signal CPU_Pixel_Write, Debug_Pixel_Write : std_logic;
+signal CPU_Pixel_Column, Debug_Pixel_Column : std_logic_vector(6 downto 0);
+signal CPU_Pixel_Row, Debug_Pixel_Row : std_logic_vector(5 downto 0);
+signal Debug_Pixel_Data : std_logic_vector(15 downto 0);
 signal Display_Reset_Sync : std_logic_vector(1 downto 0) := "11";
 signal Reset_Sync : std_logic_vector(1 downto 0) := "11";
 attribute ASYNC_REG : string;
@@ -330,7 +343,11 @@ ACCEL_Data(7 downto 0) <= ACCEL_Data_Z(11 downto 4);
 ----------------------------------------------------------------
 -- OLED data aggregation
 ----------------------------------------------------------------
-pix_data_in <= pix_data(23 downto 19) & pix_data(15 downto 10) & pix_data(7 downto 3);
+pix_data_in <= Debug_Pixel_Data when DEBUGGER_ENABLE else
+    pix_data(23 downto 19) & pix_data(15 downto 10) & pix_data(7 downto 3);
+pix_write <= Debug_Pixel_Write when DEBUGGER_ENABLE else CPU_Pixel_Write;
+pix_col <= Debug_Pixel_Column when DEBUGGER_ENABLE else CPU_Pixel_Column;
+pix_row <= Debug_Pixel_Row when DEBUGGER_ENABLE else CPU_Pixel_Row;
 
 ----------------------------------------------------------------------------
 -- Wrapper port map
@@ -362,6 +379,12 @@ Snapshot1 : DebugSnapshot
         DisplayCLK => CLK_undiv, DisplayRESET => Display_Reset_Sync(1),
         Snapshot => Display_State, Updated => Snapshot_Updated);
 
+PipelineDisplay1 : PipelineDisplay
+    port map (CLK => CLK_undiv, RESET => Display_Reset_Sync(1), Left => PB(2), Right => PB(0),
+        Snapshot => Display_State, PixelWrite => Debug_Pixel_Write,
+        PixelColumn => Debug_Pixel_Column, PixelRow => Debug_Pixel_Row,
+        PixelData => Debug_Pixel_Data);
+
 Wrapper1 : Wrapper
 port map (			
 		DIP 			 	=> 		DIP 			,
@@ -375,9 +398,9 @@ port map (
 		UART_RX 		 	=>     	UART_RX 		,
 		UART_RX_valid  		=>    	UART_RX_valid,
 		UART_RX_ack 	 	=>     	UART_RX_ack 	,
-		OLED_Write   		=> 		pix_write   	,
-		OLED_Col     		=> 		pix_col     	,
-		OLED_Row     		=> 		pix_row     	,
+		OLED_Write   		=> 		CPU_Pixel_Write,
+		OLED_Col     		=> 		CPU_Pixel_Column,
+		OLED_Row     		=> 		CPU_Pixel_Row,
 		OLED_Data	 		=> 		pix_data	 	,
 		ACCEL_Data			=> 		ACCEL_Data		,
 		ACCEL_DReady		=> 		ACCEL_DReady	,
