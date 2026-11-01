@@ -90,12 +90,21 @@ constant CLK_DIV_BITS : integer := 1; 	-- Set this to 26 for a ~1Hz clock. 0 for
 ----------------------------------------------------------------------------
 -- Wrapper component
 ----------------------------------------------------------------------------
+function image_file(debug_name, normal_name : string) return string is
+begin
+    if DEBUGGER_ENABLE then return debug_name;
+    else return normal_name;
+    end if;
+end function;
+
 component Wrapper is
 		Generic 
 		(
 			constant N_LEDs_OUT	: integer := N_LEDs_OUT;
 			constant N_DIPs		: integer := N_DIPs;
-			constant N_PBs		: integer := N_PBs
+			constant N_PBs		: integer := N_PBs;
+            IROM_FILE : string := "AA_IROM.mem";
+            DMEM_FILE : string := "AA_DMEM.mem"
 		);
 		Port 
 		(
@@ -386,6 +395,10 @@ PipelineDisplay1 : PipelineDisplay
         PixelData => Debug_Pixel_Data);
 
 Wrapper1 : Wrapper
+generic map (
+    N_LEDs_OUT => N_LEDs_OUT, N_DIPs => N_DIPs, N_PBs => N_PBs,
+    IROM_FILE => image_file("Debugger_IROM.mem", "AA_IROM.mem"),
+    DMEM_FILE => image_file("Debugger_DMEM.mem", "AA_DMEM.mem"))
 port map (			
 		DIP 			 	=> 		DIP 			,
 		PB    			 	=>   	PB    			,
