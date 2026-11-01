@@ -19,10 +19,10 @@ module test_MCycle_post_synth #(parameter SIGNED_CYCLES = 16);
     integer checks = 0;
     integer i, j;
 
-`ifdef MCYCLE_RTL
-    MCycle #(.width(32)) dut(
-`else
+`ifdef MCYCLE_NETLIST
     MCycle dut(
+`else
+    MCycle #(.width(32)) dut(
 `endif
         .CLK(CLK), .Enable(1'b1), .RESET(RESET), .Start(Start), .MCycleOp(MCycleOp),
         .Operand1(Operand1), .Operand2(Operand2),
@@ -227,10 +227,10 @@ module test_MCycle_post_synth #(parameter SIGNED_CYCLES = 16);
         reset_multiply(SIGNED_CYCLES-1);
         check_idle;
         $display("SIGNED MULTIPLICATION: busy_cycles=%0d", SIGNED_CYCLES);
-`ifdef MCYCLE_RTL
-        $display("ALL RTL EVALUATION TESTS PASSED (%0d result checks)", checks);
-`else
+`ifdef MCYCLE_NETLIST
         $display("ALL POST-SYNTHESIS TESTS PASSED (%0d result checks)", checks);
+`else
+        $display("ALL RTL EVALUATION TESTS PASSED (%0d result checks)", checks);
 `endif
         $finish;
     end

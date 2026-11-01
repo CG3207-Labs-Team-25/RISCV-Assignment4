@@ -39,3 +39,4 @@ temp/
 *.pptx
 *.pdf
 *.md
+!docs/*.md

@@ -8,6 +8,8 @@ module test_PipelineDisplay;
     wire [15:0] Data;
     integer filehandle=0, pixels=0, red=0, yellow=0, white=0, i;
     reg capturing=0, finished=0;
+    reg [2047:0] PreviewDirectory="../temp/debugger-tests";
+    reg [4095:0] PreviewPath;
     PipelineDisplay #(.DEBOUNCE_CYCLES(3)) dut(CLK, RESET, Left, Right, Snapshot, Write, X, Y, Data);
     always #5 CLK=~CLK;
     always @(posedge CLK) if(capturing && Write) begin
@@ -26,8 +28,10 @@ module test_PipelineDisplay;
     task capture;
         input [511:0] filename;
         begin
-            wait(!dut.Drawing); @(negedge CLK);
-            filehandle=$fopen(filename,"w");
+            @(negedge CLK);
+            while(!(Write && X==0 && Y==0)) @(negedge CLK);
+            $sformat(PreviewPath,"%0s/%0s",PreviewDirectory,filename);
+            filehandle=$fopen(PreviewPath,"w");
             if(!filehandle) $fatal(1,"cannot open screen preview");
             $fwrite(filehandle,"P3\n96 64\n255\n");
             pixels=0; red=0; yellow=0; white=0; finished=0; capturing=1;
@@ -39,6 +43,7 @@ module test_PipelineDisplay;
         begin Right=1; repeat(12) @(negedge CLK); Right=0; repeat(12) @(negedge CLK); end
     endtask
     initial begin
+        if($value$plusargs("PREVIEW_DIR=%s",PreviewDirectory)) begin end
         Snapshot[324:320]=5'b11101;
         Snapshot[325]=1;
         Snapshot[333+:32]=42;
@@ -55,25 +60,35 @@ module test_PipelineDisplay;
         Snapshot[557+:32]=32'h00400020; Snapshot[589+:32]=32'h00200193;
         Snapshot[621+:32]=32'h00400020; Snapshot[653+:32]=32'h00400040;
         repeat(4) @(negedge CLK); RESET=0;
-        capture("../temp/debugger-tests/pipeline-hex.ppm");
+        capture("pipeline-hex.ppm");
         if(yellow==0 || red!=0) $fatal(1,"pipeline status colors");
         right_press;
-        capture("../temp/debugger-tests/pipeline-pcs.ppm");
+        capture("pipeline-pcs.ppm");
         if(dut.FramePage!=1) $fatal(1,"PC page selection");
         right_press;
-        capture("../temp/debugger-tests/pipeline-flush.ppm");
+        capture("pipeline-flush.ppm");
         if(dut.FramePage!=2 || red==0) $fatal(1,"flush page selection/colors");
         right_press;
-        wait(!dut.Drawing); repeat(2) @(negedge CLK);
+        wait(!dut.Drawing); wait(dut.Drawing); @(negedge CLK);
         if(dut.FramePage!=0) $fatal(1,"right page wrap");
         Left=1; repeat(12) @(negedge CLK); Left=0; repeat(12) @(negedge CLK);
-        wait(!dut.Drawing); repeat(2) @(negedge CLK);
+        wait(!dut.Drawing); wait(dut.Drawing); @(negedge CLK);
         if(dut.FramePage!=2) $fatal(1,"left page wrap");
         wait(dut.Drawing && X==20 && Y==10);
         HeldFrame=dut.Frame;
         Snapshot=0;
         repeat(100) @(negedge CLK);
         if(dut.Frame!==HeldFrame) $fatal(1,"mid-frame update");
+        RESET=1;
+        #1;
+        if(Write!==0) $fatal(1,"reset did not suppress pixel writes");
+        repeat(3) @(negedge CLK);
+        if(dut.LineValid || dut.CharacterValid || dut.OutputValid)
+            $fatal(1,"reset did not clear rendering pipeline");
+        RESET=0;
+        capture("pipeline-reset.ppm");
+        if(dut.Frame!==0 || dut.FramePage!==0 || red!=0 || yellow!=0)
+            $fatal(1,"reset retained stale frame data");
         $display("ALL OLED PIPELINE DISPLAY TESTS PASSED");
         $finish;
     end

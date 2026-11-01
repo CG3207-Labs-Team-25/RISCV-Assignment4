@@ -30,7 +30,7 @@ endmodule
 module test_Wrapper_Stepping;
     reg CLK = 0, RESET = 1, Enable = 0;
     integer i, j, tx = 0, stores = 0;
-    reg [511:0] frozen;
+    reg [511:0] frozen, observed;
     Wrapper dut(.CLK(CLK), .RESET(RESET), .Enable(Enable), .DIP(16'd0), .PB(3'd0),
         .UART_TX_ready(1'b1), .UART_RX(8'd0), .UART_RX_valid(1'b0),
         .ACCEL_Data(32'd0), .ACCEL_DReady(1'b0));
@@ -44,16 +44,17 @@ module test_Wrapper_Stepping;
         if (!Enable && (dut.MemWrite || dut.MemRead))
             $fatal(1, "paused memory transaction");
     end
-    function [511:0] state;
+    task capture_state;
+        output [511:0] value;
         begin
-            state = {dut.PC, dut.RV1.PC_D, dut.RV1.PC_E, dut.RV1.PC_M, dut.RV1.PC_W,
+            value = {dut.PC, dut.RV1.PC_D, dut.RV1.PC_E, dut.RV1.PC_M, dut.RV1.PC_W,
                 dut.RV1.Valid_D, dut.RV1.Valid_E, dut.RV1.Valid_M, dut.RV1.Valid_W,
                 dut.RV1.MCycle1.state, dut.RV1.MCycle1.count,
                 dut.RV1.MCycle1.Result1, dut.RV1.MCycle1.Result2,
                 dut.RV1.MCycle1.temp_sum, dut.RV1.HeldRD1_E, dut.RV1.HeldRD2_E,
                 dut.RV1.RegFile1.RegBank[3], dut.DMEM[0], dut.cycle_count};
         end
-    endfunction
+    endtask
     initial begin
         #1;
         for (i=0; i<512; i=i+1) begin dut.IROM[i]=32'h13; reference.IROM[i]=32'h13; end
@@ -74,10 +75,11 @@ module test_Wrapper_Stepping;
         dut.DMEM[0]=0; reference.DMEM[0]=0;
         repeat(3) @(negedge CLK); RESET=0;
         for (i=0; i<180; i=i+1) begin
-            Enable=0; #1; frozen=state();
+            Enable=0; #1; capture_state(frozen);
             repeat(3) begin
                 @(negedge CLK); #1;
-                if (state() !== frozen) $fatal(1, "CPU changed while paused at step %d", i);
+                capture_state(observed);
+                if (observed !== frozen) $fatal(1, "CPU changed while paused at step %d", i);
             end
             Enable=1; @(negedge CLK);
         end

@@ -5,6 +5,14 @@ module test_PipelineDebugger;
     wire Enable;
     wire [767:0] Debug, Snapshot;
     wire Updated;
+    reg Right=0;
+    wire PixelWrite;
+    wire [6:0] PixelX;
+    wire [5:0] PixelY;
+    wire [15:0] PixelData;
+    reg [2047:0] PreviewDirectory="../temp/debugger-tests";
+    reg [4095:0] PreviewPath;
+    integer preview_file, pixel_count;
     integer selection, steps, before_cycle, good, exits, stalls, multicycle, n, result, j;
     Wrapper #(.IROM_FILE("Debugger_IROM.mem"), .DMEM_FILE("Debugger_DMEM.mem")) dut(
         .CLK(CLK), .RESET(RESET), .Enable(Enable), .DebugState(Debug),
@@ -12,6 +20,8 @@ module test_PipelineDebugger;
         .UART_RX_valid(1'b0), .ACCEL_Data(32'd0), .ACCEL_DReady(1'b0));
     StepController #(.STABLE_CYCLES(3)) Controller(CLK, RESET, Button, Enable);
     DebugSnapshot Bridge(CLK, RESET, Debug, DisplayCLK, RESET, Snapshot, Updated);
+    PipelineDisplay #(.DEBOUNCE_CYCLES(3)) Display(
+        DisplayCLK, RESET, 1'b0, Right, Snapshot, PixelWrite, PixelX, PixelY, PixelData);
     always #20 CLK=~CLK;
     always #5 DisplayCLK=~DisplayCLK;
     always @(posedge CLK) if(!RESET && Enable) begin
@@ -37,7 +47,41 @@ module test_PipelineDebugger;
                 $fatal(1,"display snapshot did not catch up while paused");
         end
     endtask
+    task capture_exit;
+        begin
+            repeat(2) begin
+                Right=1; repeat(12) @(negedge DisplayCLK);
+                Right=0; repeat(12) @(negedge DisplayCLK);
+            end
+            wait(!Display.Drawing);
+            wait(Display.Drawing); @(negedge DisplayCLK);
+            if(Display.FramePage!=2 || Display.Frame[429+:32] !== 32'h0040002c ||
+                Display.Frame[621+:32] !== 32'h00400024 ||
+                Display.Frame[653+:32] !== 32'h00400030)
+                $fatal(1,"OLED did not receive the actual loop-exit event");
+            @(negedge DisplayCLK);
+            while(!(PixelWrite && PixelX==0 && PixelY==0)) @(negedge DisplayCLK);
+            $sformat(PreviewPath,"%0s/demo-loop-exit.ppm",PreviewDirectory);
+            preview_file=$fopen(PreviewPath,"w");
+            if(!preview_file) $fatal(1,"cannot open integrated OLED preview");
+            $fwrite(preview_file,"P3\n96 64\n255\n");
+            pixel_count=0;
+            while(pixel_count<6144) begin
+                @(posedge DisplayCLK);
+                if(PixelWrite) begin
+                    if(PixelX !== pixel_count%96 || PixelY !== pixel_count/96)
+                        $fatal(1,"integrated OLED pixel position/bounds");
+                    $fwrite(preview_file,"%0d %0d %0d\n",{PixelData[15:11],3'b0},
+                        {PixelData[10:5],2'b0},{PixelData[4:0],3'b0});
+                    pixel_count=pixel_count+1;
+                end
+            end
+            $fclose(preview_file);
+            @(negedge CLK);
+        end
+    endtask
     initial begin
+        if($value$plusargs("PREVIEW_DIR=%s",PreviewDirectory)) begin end
         for(selection=0;selection<4;selection=selection+1) begin
             RESET=1; Button=0; DIP=selection;
             good=0; exits=0; stalls=0; multicycle=0;
@@ -47,6 +91,7 @@ module test_PipelineDebugger;
             steps=6;
             while(dut.RV1.RegFile1.RegBank[27] !== 1 && steps<320) begin
                 step; steps=steps+1;
+                if(selection==0 && steps==43) capture_exit;
             end
             n=selection+3; result=n*(2*n+1);
             if(steps==320 || dut.LED_OUT !== result || dut.SEVENSEGHEX !== result)

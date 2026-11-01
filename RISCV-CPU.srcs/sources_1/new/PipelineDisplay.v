@@ -6,9 +6,9 @@ module PipelineDisplay #(
     input Left, Right,
     input [767:0] Snapshot,
     output PixelWrite,
-    output [6:0] PixelColumn,
-    output [5:0] PixelRow,
-    output [15:0] PixelData
+    output reg [6:0] PixelColumn = 0,
+    output reg [5:0] PixelRow = 0,
+    output reg [15:0] PixelData = 0
 );
     wire LeftPulse, RightPulse;
     reg [1:0] Page = 0, FramePage = 0;
@@ -16,11 +16,15 @@ module PipelineDisplay #(
     reg [6:0] X = 0;
     reg [5:0] Y = 0;
     reg Drawing = 0;
-    wire [3:0] Column = X / 6;
     wire [2:0] Row = Y[5:3];
-    wire [2:0] FontX = X % 6;
     wire Pixel;
-    reg [7:0] Character;
+    reg [127:0] RenderLine = 0;
+    reg [15:0] LineColor = 0, CharacterColor = 0;
+    reg [6:0] LineX = 0, CharacterX = 0;
+    reg [5:0] LineY = 0, CharacterY = 0;
+    reg [7:0] Character = 0;
+    reg [2:0] FontX = 0, FontY = 0;
+    reg LineValid = 0, CharacterValid = 0, OutputValid = 0;
     reg [15:0] Color;
     reg [127:0] Line;
     reg [31:0] Value;
@@ -28,11 +32,8 @@ module PipelineDisplay #(
     integer Stage;
     StepController #(.STABLE_CYCLES(DEBOUNCE_CYCLES)) LeftButton(CLK, RESET, Left, LeftPulse);
     StepController #(.STABLE_CYCLES(DEBOUNCE_CYCLES)) RightButton(CLK, RESET, Right, RightPulse);
-    DebugFont Font(Character, FontX, Y[2:0], Pixel);
-    assign PixelWrite = Drawing && !RESET;
-    assign PixelColumn = X;
-    assign PixelRow = Y;
-    assign PixelData = Pixel ? Color : 16'h0000;
+    DebugFont Font(Character, FontX, FontY, Pixel);
+    assign PixelWrite = OutputValid && !RESET;
 
     function [7:0] hexchar;
         input [3:0] Nibble;
@@ -118,11 +119,26 @@ module PipelineDisplay #(
             endcase
             if(Row >= 2 && Row <= 5) Color=16'hf800;
         end
-        Character=Line[127-Column*8 -: 8];
     end
 
     always @(posedge CLK) begin
         if(RESET) begin
+            LineValid<=0;
+            CharacterValid<=0;
+            OutputValid<=0;
+            RenderLine<=0;
+            LineColor<=0;
+            LineX<=0;
+            LineY<=0;
+            Character<=0;
+            CharacterColor<=0;
+            CharacterX<=0;
+            CharacterY<=0;
+            FontX<=0;
+            FontY<=0;
+            PixelColumn<=0;
+            PixelRow<=0;
+            PixelData<=0;
             Page<=0;
             FramePage<=0;
             Frame<=0;
@@ -131,14 +147,32 @@ module PipelineDisplay #(
             Drawing<=0;
         end
         else begin
+            LineValid<=Drawing;
+            RenderLine<=Line;
+            LineColor<=Color;
+            LineX<=X;
+            LineY<=Y;
+            CharacterValid<=LineValid;
+            Character<=RenderLine[127-(LineX/6)*8 -: 8];
+            CharacterColor<=LineColor;
+            CharacterX<=LineX;
+            CharacterY<=LineY;
+            FontX<=LineX%6;
+            FontY<=LineY[2:0];
+            OutputValid<=CharacterValid;
+            PixelColumn<=CharacterX;
+            PixelRow<=CharacterY;
+            PixelData<=Pixel ? CharacterColor : 16'h0000;
             if(LeftPulse && !RightPulse) Page<=Page==0 ? 2 : Page-1'b1;
             else if(RightPulse && !LeftPulse) Page<=Page==2 ? 0 : Page+1'b1;
             if(!Drawing) begin
-                Frame<=Snapshot;
-                FramePage<=Page;
-                Drawing<=1;
-                X<=0;
-                Y<=0;
+                if(!LineValid && !CharacterValid && !OutputValid) begin
+                    Frame<=Snapshot;
+                    FramePage<=Page;
+                    Drawing<=1;
+                    X<=0;
+                    Y<=0;
+                end
             end
             else if(X==95) begin
                 X<=0;
