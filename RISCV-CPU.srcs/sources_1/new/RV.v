@@ -42,6 +42,7 @@ module RV #(
 )(
     input CLK,
     input RESET,
+    input Enable,
     //input Interrupt,      // for optional future use.
     input [31:0] Instr,
     input [31:0] ReadData_in,       // Name mangled to support lb/lbu/lh/lhu
@@ -49,7 +50,8 @@ module RV #(
     output [3:0] MemWrite_out,		// Column-wise write enable to support sb/sw. Each column is a byte.
     output [31:0] PC,
     output [31:0] ALUResult,
-    output [31:0] WriteData_out		// Name mangled to support sb/sw
+    output [31:0] WriteData_out,
+    output [767:0] DebugState
 );
 
     wire [31:0] Instr_F;
@@ -160,6 +162,30 @@ module RV #(
     reg [31:0] HeldRD2_E = 0;
     wire Mispredict;
     wire [31:0] PrPC_F;
+    reg [31:0] PredictedNext_D = 0;
+    reg [31:0] PredictedNext_E = 0;
+    reg [31:0] DebugCycle = 0;
+    wire [7:0] DebugStatus = {ForwardM, ForwardBE, ForwardAE, Mispredict, Busy, LoadStall};
+
+    always @(posedge CLK) begin
+        if (RESET) DebugCycle <= 0;
+        else if (Enable) DebugCycle <= DebugCycle + 1'b1;
+    end
+
+    wire [292:0] LastBranchEvent;
+    BranchTrace BranchTrace1(
+        .CLK(CLK), .RESET(RESET), .Enable(Enable), .Recover(Mispredict),
+        .PC_F(PC_F), .PC_D(PC_D), .PC_E(PC_E),
+        .Instr_F(Instr_F), .Instr_D(Instr_D), .Instr_E(Instr_E),
+        .Valid_F(!RESET), .Valid_D(Valid_D),
+        .Predicted(PredictedNext_E), .Actual(PC_ALU), .Taken(|PCSrc_E),
+        .Event(LastBranchEvent)
+    );
+
+    assign DebugState = {46'd0, LastBranchEvent, PC_ALU, PredictedNext_E, DebugCycle,
+        DebugStatus, Valid_W, Valid_M, Valid_E, Valid_D, !RESET,
+        Instr_W, Instr_M, Instr_E, Instr_D, Instr_F,
+        PC_W, PC_M, PC_E, PC_D, PC_F};
 
     //for load/store instruction
     reg [2:0] Funct3_M = 0;
@@ -239,6 +265,7 @@ module RV #(
     assign Operand2_E = OperandsHeld_E ? HeldRD2_E : ForwardRD2_E;
 
     always @(posedge CLK) begin
+        if (RESET || Enable) begin
         if (RESET || !Busy) begin
             OperandsHeld_E <= 0;
             HeldRD1_E <= 0;
@@ -250,8 +277,10 @@ module RV #(
             HeldRD2_E <= ForwardRD2_E;
         end
     end
+    end
 
     always @(posedge CLK) begin
+        if (RESET || Enable) begin
         if (RESET || FlushE) begin
             rs1_E <= 0;
             rs2_E <= 0;
@@ -263,25 +292,32 @@ module RV #(
         if (RESET || Busy) rs2_M <= 0;
         else rs2_M <= rs2_E;
     end
+    end
 
     always @(posedge CLK) begin
+        if (RESET || Enable) begin
         if (RESET || FlushD) begin
             Instr_D <= 32'h00000013;
             PC_D <= 0;
+            PredictedNext_D <= 0;
             Valid_D <= 0;
         end
         else if (!StallD) begin
             Instr_D <= Instr_F;
             PC_D <= PC_F;
+            PredictedNext_D <= PrPC_F;
             Valid_D <= 1;
         end
+    end
     end
 
     //D stage to E stage pipeline registers
     always @(posedge CLK) begin
+        if (RESET || Enable) begin
         if (RESET || FlushE) begin
             Instr_E <= 32'h00000013;
             PC_E <= 0;
+            PredictedNext_E <= 0;
             RD1_E <= 0;
             RD2_E <= 0;
             ExtImm_E <= 0;
@@ -301,6 +337,7 @@ module RV #(
         else if (!Busy) begin
             Instr_E <= Instr_D;
             PC_E <= PC_D;
+            PredictedNext_E <= PredictedNext_D;
             RD1_E <= DecodeRD1_D;
             RD2_E <= DecodeRD2_D;
             ExtImm_E <= ExtImm_D;
@@ -318,9 +355,11 @@ module RV #(
             Valid_E <= Valid_D;
         end
     end
+    end
 
     //E stage to M stage pipeline registers
     always @(posedge CLK) begin
+        if (RESET || Enable) begin
         if (RESET || Busy) begin
             Instr_M <= 32'h00000013;
             PC_M <= 0;
@@ -346,9 +385,11 @@ module RV #(
             Funct3_M <= Funct3_E;   // for load/store instruction
         end
     end
+    end
 
     //M stage to W stage pipeline registers
     always @(posedge CLK) begin
+        if (RESET || Enable) begin
         if (RESET) begin
             Instr_W <= 32'h00000013;
             PC_W <= 0;
@@ -372,6 +413,7 @@ module RV #(
             Funct3_W <= Funct3_M;   // for load/store instruction
         end
     end
+    end
 
     assign ALUResult = ALUResult_M;
 
@@ -380,7 +422,7 @@ module RV #(
     // assign MemWrite_out = {4{Valid_M & MemWrite_M & ~RESET}};
 
     //new: after adding load/store instruction support
-    assign MemWriteEn_M = Valid_M & MemWrite_M & ~RESET;
+    assign MemWriteEn_M = Enable & Valid_M & MemWrite_M & ~RESET;
     assign StoreData_M  = ForwardM ? WD_W : WriteData_M;
 
     always @(*) begin
@@ -423,7 +465,7 @@ module RV #(
         endcase
     end
 
-    assign MemRead = Valid_M & RegWrite_M & (MemtoReg_M == 2'b10) & ~RESET;
+    assign MemRead = Enable & Valid_M & RegWrite_M & (MemtoReg_M == 2'b10) & ~RESET;
     assign ReadData_M = ReadData_in;
 
     always @(*) begin
@@ -447,7 +489,7 @@ module RV #(
 
     RegFile RegFile1(
         CLK,
-        WE,
+        WE && Enable,
         rs1_D,
         rs2_D,
         rd_W,
@@ -517,7 +559,8 @@ module RV #(
         Src_B_E,
         Result1_E,
         Result2_E,
-        Busy
+        Busy,
+        Enable
     );
 
     always @(*) begin
@@ -528,9 +571,9 @@ module RV #(
                 PC_Base = PC_E;
                 PC_Offset = ExtImm_E;
             end
-            2'b10: PC_Base = ForwardRD1_E;
+            2'b10: PC_Base = Operand1_E;
             2'b11: begin
-                PC_Base = ForwardRD1_E;
+                PC_Base = Operand1_E;
                 PC_Offset = ExtImm_E;
             end
             default: PC_Base = PC_E;
@@ -539,7 +582,7 @@ module RV #(
 
     assign PC_Sum = PC_Base + PC_Offset;
     assign PC_ALU = {PC_Sum[31:1], PC_Sum[0] & ~PCSrc_E[1]};
-    assign WE_PC = !StallF;
+    assign WE_PC = Enable && (Mispredict || !StallF);
     assign PC_IN = (Mispredict) ? PC_ALU : PrPC_F;
 
     ProgramCounter #(.PC_INIT(PC_INIT)) ProgramCounter1(
@@ -551,14 +594,18 @@ module RV #(
     );
 
     BranchPrediction #(.ADDRESS_BITS(8)) BranchPredictor1(
-        CLK,
-        RESET,
-        PC_ALU, // PCNextE
-        PC_F,
-        PC_E,
-        PCSrc_E,
-        Mispredict,
-        PrPC_F
+        .CLK(CLK),
+        .RESET(RESET),
+        .Enable(Enable),
+        .Resolve_E(Valid_E && !Busy),
+        .Opcode_E(Instr_E[6:0]),
+        .PCNext_E(PC_ALU),
+        .PredictedNext_E(PredictedNext_E),
+        .PC_F(PC_F),
+        .PC_E(PC_E),
+        .PCSrc_E(PCSrc_E),
+        .Mispredict(Mispredict),
+        .PrPCF(PrPC_F)
     );
 
 endmodule

@@ -46,11 +46,11 @@ module HazardUnit(
     assign LoadStall = Valid_D && Valid_E && RegWrite_E &&
                        (MemtoReg_E == 2'b10) && (rd_E != 0) &&
                        ((UsesRs1_D && rs1_D == rd_E) || (UsesRs2_D && rs2_D == rd_E));
-    assign Redirect_E = Valid_E && !RESET && !Busy && (PCSrc_E != 2'b00);
+    assign Redirect_E = Valid_E && !RESET && !Busy && Mispredict;
     assign StallF = Busy || LoadStall;
     assign StallD = Busy || LoadStall;
-    assign FlushD = Redirect_E || Mispredict;
-    assign FlushE = !Busy && (LoadStall || Redirect_E || Mispredict);
+    assign FlushD = Redirect_E;
+    assign FlushE = !Busy && (LoadStall || Redirect_E);
     assign Forward1D = WE_W && (rd_W != 0) && (rs1_D == rd_W);
     assign Forward2D = WE_W && (rd_W != 0) && (rs2_D == rd_W);
     assign ForwardM = Valid_M && MemWrite_M && WE_W && (MemtoReg_W == 2'b10) &&

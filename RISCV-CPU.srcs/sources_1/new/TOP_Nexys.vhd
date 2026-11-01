@@ -44,6 +44,7 @@ entity TOP is
 			constant N_PBs		: integer := 3;  -- Number of PushButtons. 3 by default
 			-- Order (2 downto 0) -> BTNL, BTNC, BTNR.
 			-- Note that BTNU is used as PAUSE and BTND is used as RESET
+			constant DEBUGGER_ENABLE : boolean := True;
 			constant N_SEVEN_SEG_DIGITs	: integer := 8  -- Number of digits on the 7-seg display. 4 for Basys, 8 for Nexys
 		);
 		Port 
@@ -89,12 +90,21 @@ constant CLK_DIV_BITS : integer := 1; 	-- Set this to 26 for a ~1Hz clock. 0 for
 ----------------------------------------------------------------------------
 -- Wrapper component
 ----------------------------------------------------------------------------
+function image_file(debug_name, normal_name : string) return string is
+begin
+    if DEBUGGER_ENABLE then return debug_name;
+    else return normal_name;
+    end if;
+end function;
+
 component Wrapper is
 		Generic 
 		(
 			constant N_LEDs_OUT	: integer := N_LEDs_OUT;
 			constant N_DIPs		: integer := N_DIPs;
-			constant N_PBs		: integer := N_PBs
+			constant N_PBs		: integer := N_PBs;
+            IROM_FILE : string := "AA_IROM.mem";
+            DMEM_FILE : string := "AA_DMEM.mem"
 		);
 		Port 
 		(
@@ -116,9 +126,46 @@ component Wrapper is
 			ACCEL_Data 			: in STD_LOGIC_VECTOR (31 downto 0);
 			ACCEL_DReady		: in STD_LOGIC;			
 			RESET				: in  STD_LOGIC;
-			CLK					: in  STD_LOGIC
+			CLK : in STD_LOGIC;
+            Enable : in STD_LOGIC;
+            DebugState : out STD_LOGIC_VECTOR(767 downto 0)
 		);
 end component Wrapper;
+
+component StepController is
+    generic (STABLE_CYCLES : integer := 250000);
+    port (CLK, RESET, Button : in std_logic; Pulse : out std_logic);
+end component;
+signal CPU_Enable, Step_Pulse : std_logic;
+signal Debug_State : std_logic_vector(767 downto 0);
+component DebugSnapshot is
+    generic (WIDTH : integer := 768);
+    port (SourceCLK, SourceRESET : in std_logic;
+        SourceData : in std_logic_vector(WIDTH-1 downto 0);
+        DisplayCLK, DisplayRESET : in std_logic;
+        Snapshot : out std_logic_vector(WIDTH-1 downto 0);
+        Updated : out std_logic);
+end component;
+signal Display_State : std_logic_vector(767 downto 0);
+signal Snapshot_Updated : std_logic;
+component PipelineDisplay is
+    generic (DEBOUNCE_CYCLES : integer := 1000000);
+    port (CLK, RESET, Left, Right : in std_logic;
+        Snapshot : in std_logic_vector(767 downto 0);
+        PixelWrite : out std_logic;
+        PixelColumn : out std_logic_vector(6 downto 0);
+        PixelRow : out std_logic_vector(5 downto 0);
+        PixelData : out std_logic_vector(15 downto 0));
+end component;
+signal CPU_Pixel_Write, Debug_Pixel_Write : std_logic;
+signal CPU_Pixel_Column, Debug_Pixel_Column : std_logic_vector(6 downto 0);
+signal CPU_Pixel_Row, Debug_Pixel_Row : std_logic_vector(5 downto 0);
+signal Debug_Pixel_Data : std_logic_vector(15 downto 0);
+signal Display_Reset_Sync : std_logic_vector(1 downto 0) := "11";
+signal Reset_Sync : std_logic_vector(1 downto 0) := "11";
+attribute ASYNC_REG : string;
+attribute ASYNC_REG of Reset_Sync : signal is "TRUE";
+attribute ASYNC_REG of Display_Reset_Sync : signal is "TRUE";
 
 ----------------------------------------------------------------------------
 -- Wrapper signals
@@ -291,7 +338,7 @@ LED(N_LEDs_OUT-1 downto 0) 	<= LED_OUT;	-- LED(7 downto 0) Memory-mapped writeab
 ----------------------------------------------------------------	
 -- RESET_EXT <= not RESET; 				-- CPU_RESET (red button) is active low.
 RESET_EXT <= RESET; 					-- BTNU, active high.  
-RESET_EFF <= RESET_INT or RESET_EXT; 	-- Reset sent to the Wrapper
+RESET_EFF <= RESET_INT or Reset_Sync(1); 	-- Reset sent to the Wrapper
 RESET_INT <= '0'; 						-- internal reset, for future use.	
 
 ----------------------------------------------------------------
@@ -305,12 +352,53 @@ ACCEL_Data(7 downto 0) <= ACCEL_Data_Z(11 downto 4);
 ----------------------------------------------------------------
 -- OLED data aggregation
 ----------------------------------------------------------------
-pix_data_in <= pix_data(23 downto 19) & pix_data(15 downto 10) & pix_data(7 downto 3);
+pix_data_in <= Debug_Pixel_Data when DEBUGGER_ENABLE else
+    pix_data(23 downto 19) & pix_data(15 downto 10) & pix_data(7 downto 3);
+pix_write <= Debug_Pixel_Write when DEBUGGER_ENABLE else CPU_Pixel_Write;
+pix_col <= Debug_Pixel_Column when DEBUGGER_ENABLE else CPU_Pixel_Column;
+pix_row <= Debug_Pixel_Row when DEBUGGER_ENABLE else CPU_Pixel_Row;
 
 ----------------------------------------------------------------------------
 -- Wrapper port map
 ----------------------------------------------------------------------------			
+process(CLK, RESET_EXT)
+begin
+    if RESET_EXT = '1' then
+        Reset_Sync <= "11";
+    elsif rising_edge(CLK) then
+        Reset_Sync <= Reset_Sync(0) & '0';
+    end if;
+end process;
+
+Step1 : StepController
+    port map (CLK => CLK, RESET => RESET_EFF, Button => PB(1), Pulse => Step_Pulse);
+CPU_Enable <= Step_Pulse when DEBUGGER_ENABLE else '1';
+
+process(CLK_undiv, RESET_EXT)
+begin
+    if RESET_EXT = '1' then
+        Display_Reset_Sync <= "11";
+    elsif rising_edge(CLK_undiv) then
+        Display_Reset_Sync <= Display_Reset_Sync(0) & '0';
+    end if;
+end process;
+
+Snapshot1 : DebugSnapshot
+    port map (SourceCLK => CLK, SourceRESET => RESET_EFF, SourceData => Debug_State,
+        DisplayCLK => CLK_undiv, DisplayRESET => Display_Reset_Sync(1),
+        Snapshot => Display_State, Updated => Snapshot_Updated);
+
+PipelineDisplay1 : PipelineDisplay
+    port map (CLK => CLK_undiv, RESET => Display_Reset_Sync(1), Left => PB(2), Right => PB(0),
+        Snapshot => Display_State, PixelWrite => Debug_Pixel_Write,
+        PixelColumn => Debug_Pixel_Column, PixelRow => Debug_Pixel_Row,
+        PixelData => Debug_Pixel_Data);
+
 Wrapper1 : Wrapper
+generic map (
+    N_LEDs_OUT => N_LEDs_OUT, N_DIPs => N_DIPs, N_PBs => N_PBs,
+    IROM_FILE => image_file("Debugger_IROM.mem", "AA_IROM.mem"),
+    DMEM_FILE => image_file("Debugger_DMEM.mem", "AA_DMEM.mem"))
 port map (			
 		DIP 			 	=> 		DIP 			,
 		PB    			 	=>   	PB    			,
@@ -323,14 +411,16 @@ port map (
 		UART_RX 		 	=>     	UART_RX 		,
 		UART_RX_valid  		=>    	UART_RX_valid,
 		UART_RX_ack 	 	=>     	UART_RX_ack 	,
-		OLED_Write   		=> 		pix_write   	,
-		OLED_Col     		=> 		pix_col     	,
-		OLED_Row     		=> 		pix_row     	,
+		OLED_Write   		=> 		CPU_Pixel_Write,
+		OLED_Col     		=> 		CPU_Pixel_Column,
+		OLED_Row     		=> 		CPU_Pixel_Row,
 		OLED_Data	 		=> 		pix_data	 	,
 		ACCEL_Data			=> 		ACCEL_Data		,
 		ACCEL_DReady		=> 		ACCEL_DReady	,
 		RESET			 	=>     	RESET_EFF		,
-		CLK				 	=>     	CLK	
+		CLK				 	=>     	CLK,
+        Enable => CPU_Enable,
+        DebugState => Debug_State
 );
 
 ----------------------------------------------------------------------------
@@ -507,7 +597,7 @@ CLK_DIV_PROCESS : process(CLK_undiv)						-- Clock division
 variable clk_counter : std_logic_vector(CLK_DIV_BITS downto 0) := (others => '0');
 begin
 	if CLK_undiv'event and CLK_undiv = '1' then
-		if PAUSE = '0' then
+		if DEBUGGER_ENABLE or PAUSE = '0' then
 			clk_counter := clk_counter+1;
 			CLK <= clk_counter(CLK_DIV_BITS);
 		end if;

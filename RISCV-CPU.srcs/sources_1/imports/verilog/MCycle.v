@@ -43,7 +43,8 @@ module MCycle
         input [width-1:0] Operand2, // Multiplier / Divisor
         output reg [width-1:0] Result1, // LSW of Product / Quotient
         output reg [width-1:0] Result2, // MSW of Product / Remainder
-        output reg Busy // Set immediately when Start is set. Cleared when the Results become ready. This bit can be used to stall the processor while multi-cycle operations are on.
+        output reg Busy, // Set immediately when Start is set. Cleared when the Results become ready. This bit can be used to stall the processor while multi-cycle operations are on.
+        input Enable
     );
     
 // use the Busy signal to reset WE_PC to 0 in RV.v (aka "freeze" PC). The two signals are complements of each other
@@ -236,6 +237,7 @@ module MCycle
 
 
     always@( posedge CLK ) begin : STATE_UPDATE_PROCESS // the only place any of this is registered
+        if (RESET || Enable) begin
         state <= n_state ;
         count <= n_count ;
         done <= n_done ;
@@ -248,6 +250,7 @@ module MCycle
         Result2 <= n_Result2 ;
         neg_q <= n_neg_q ;
         neg_r <= n_neg_r ;
+        end
     end
 
 endmodule

@@ -24,7 +24,7 @@ module test_Wrapper_BF #(
     Wrapper #(.N_LEDs_OUT(N_LEDs_OUT), .N_DIPs(N_DIPs), .N_PBs(N_PBs)) dut(
         .DIP(init_DIPs), .PB({N_PBs{1'b0}}), .LED_OUT(LED_OUT),
         .UART_TX_ready(1'b1), .UART_RX(8'd0), .UART_RX_valid(1'b0),
-        .ACCEL_Data(32'd0), .ACCEL_DReady(1'b0), .RESET(RESET), .CLK(CLK)
+        .ACCEL_Data(32'd0), .ACCEL_DReady(1'b0), .RESET(RESET), .CLK(CLK), .Enable(1'b1)
     );
 
     test_Wrapper_MCycle #(.FINISH_ON_DONE(0)) booth_tests(.done(booth_tests_done));
@@ -155,7 +155,7 @@ module test_Wrapper_Pipeline_checks(output reg done = 0);
         .DIP(16'h1234), .PB(3'd0), .LED_OUT(LED_OUT),
         .UART_TX(UART_TX), .UART_TX_valid(UART_TX_valid), .UART_RX_ack(UART_RX_ack),
         .UART_TX_ready(1'b1), .UART_RX(8'hab), .UART_RX_valid(1'b1),
-        .ACCEL_Data(32'd0), .ACCEL_DReady(1'b0), .RESET(RESET), .CLK(CLK)
+        .ACCEL_Data(32'd0), .ACCEL_DReady(1'b0), .RESET(RESET), .CLK(CLK), .Enable(1'b1)
     );
 
     always #5 CLK = ~CLK;
