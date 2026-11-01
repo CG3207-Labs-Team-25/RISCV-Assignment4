@@ -422,13 +422,6 @@ module RV #(
             default: LoadData_W = ReadData_W;                          // lw
         endcase
     end
-    
-    always @(*) begin
-        case (MemtoReg_W)
-            2'b10: WD_W = LoadData_W;
-            default: WD_W = ALUResult_W;
-        endcase
-    end
 
     assign MemRead = Valid_M & RegWrite_M & (MemtoReg_M == 2'b10) & ~RESET;
     assign ReadData_M = ReadData_in;
@@ -443,7 +436,7 @@ module RV #(
 
     always @(*) begin
         case (MemtoReg_W)
-            2'b10: WD_W = ReadData_W;
+            2'b10: WD_W = LoadData_W;   //new
             default: WD_W = ALUResult_W;
         endcase
     end
