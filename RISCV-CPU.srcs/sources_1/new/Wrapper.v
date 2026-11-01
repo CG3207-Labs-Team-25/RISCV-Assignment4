@@ -65,7 +65,8 @@ module Wrapper
 	input ACCEL_DReady,			// Accelerometer data ready signal. Mostly not necessary unless you are reading at a very high rate.
 	input  RESET,				// Active high. Implemented in TOP as not(BTND) or Internal_reset.
 	input  CLK,
-    input Enable
+    input Enable,
+    output [767:0] DebugState
 );
 
 // Set the base address according to your memory configuration in RARS. Set the size (Depth bits) appropriately as well.
@@ -471,7 +472,8 @@ RV #(.PC_INIT(PC_INIT)) RV1(
 	MemWrite_out,
 	PC,
 	ALUResult,
-	WriteData_out
+	WriteData_out,
+    DebugState
 );
 
 endmodule

@@ -50,7 +50,8 @@ module RV #(
     output [3:0] MemWrite_out,		// Column-wise write enable to support sb/sw. Each column is a byte.
     output [31:0] PC,
     output [31:0] ALUResult,
-    output [31:0] WriteData_out		// Name mangled to support sb/sw
+    output [31:0] WriteData_out,
+    output [767:0] DebugState
 );
 
     wire [31:0] Instr_F;
@@ -163,6 +164,18 @@ module RV #(
     wire [31:0] PrPC_F;
     reg [31:0] PredictedNext_D = 0;
     reg [31:0] PredictedNext_E = 0;
+    reg [31:0] DebugCycle = 0;
+    wire [7:0] DebugStatus = {ForwardM, ForwardBE, ForwardAE, Mispredict, Busy, LoadStall};
+
+    always @(posedge CLK) begin
+        if (RESET) DebugCycle <= 0;
+        else if (Enable) DebugCycle <= DebugCycle + 1'b1;
+    end
+
+    assign DebugState = {339'd0, PC_ALU, PredictedNext_E, DebugCycle,
+        DebugStatus, Valid_W, Valid_M, Valid_E, Valid_D, !RESET,
+        Instr_W, Instr_M, Instr_E, Instr_D, Instr_F,
+        PC_W, PC_M, PC_E, PC_D, PC_F};
 
     //for load/store instruction
     reg [2:0] Funct3_M = 0;

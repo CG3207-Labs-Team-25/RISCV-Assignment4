@@ -118,7 +118,8 @@ component Wrapper is
 			ACCEL_DReady		: in STD_LOGIC;			
 			RESET				: in  STD_LOGIC;
 			CLK : in STD_LOGIC;
-            Enable : in STD_LOGIC
+            Enable : in STD_LOGIC;
+            DebugState : out STD_LOGIC_VECTOR(767 downto 0)
 		);
 end component Wrapper;
 
@@ -127,6 +128,7 @@ component StepController is
     port (CLK, RESET, Button : in std_logic; Pulse : out std_logic);
 end component;
 signal CPU_Enable, Step_Pulse : std_logic;
+signal Debug_State : std_logic_vector(767 downto 0);
 signal Reset_Sync : std_logic_vector(1 downto 0) := "11";
 attribute ASYNC_REG : string;
 attribute ASYNC_REG of Reset_Sync : signal is "TRUE";
@@ -355,7 +357,8 @@ port map (
 		ACCEL_DReady		=> 		ACCEL_DReady	,
 		RESET			 	=>     	RESET_EFF		,
 		CLK				 	=>     	CLK,
-        Enable => CPU_Enable
+        Enable => CPU_Enable,
+        DebugState => Debug_State
 );
 
 ----------------------------------------------------------------------------
