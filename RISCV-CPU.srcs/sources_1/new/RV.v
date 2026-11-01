@@ -161,6 +161,17 @@ module RV #(
     wire Mispredict;
     wire [31:0] PrPC_F;
 
+    //for load/store instruction
+    reg [2:0] Funct3_M = 0;
+    reg [2:0] Funct3_W = 0;
+    wire [31:0] StoreData_M;
+    reg [31:0] LoadData_W;
+    reg [3:0]  ByteEn_M;
+    reg [31:0] WriteDataAligned_M;
+    wire MemWriteEn_M;
+    reg [7:0]  LoadByte_W;
+    reg [15:0] LoadHalf_W;
+
     assign Instr_F = Instr;
     assign PC = PC_F;
     assign rs1_D = Instr_D[19:15];
@@ -266,6 +277,7 @@ module RV #(
         end
     end
 
+    //D stage to E stage pipeline registers
     always @(posedge CLK) begin
         if (RESET || FlushE) begin
             Instr_E <= 32'h00000013;
@@ -307,6 +319,7 @@ module RV #(
         end
     end
 
+    //E stage to M stage pipeline registers
     always @(posedge CLK) begin
         if (RESET || Busy) begin
             Instr_M <= 32'h00000013;
@@ -318,6 +331,7 @@ module RV #(
             MemWrite_M <= 0;
             MemtoReg_M <= 0;
             Valid_M <= 0;
+            Funct3_M <= 0;  // for load/store instruction
         end
         else begin
             Instr_M <= Instr_E;
@@ -329,9 +343,11 @@ module RV #(
             MemWrite_M <= MemWrite_E;
             MemtoReg_M <= MemtoReg_E;
             Valid_M <= Valid_E;
+            Funct3_M <= Funct3_E;   // for load/store instruction
         end
     end
 
+    //M stage to W stage pipeline registers
     always @(posedge CLK) begin
         if (RESET) begin
             Instr_W <= 32'h00000013;
@@ -342,6 +358,7 @@ module RV #(
             RegWrite_W <= 0;
             MemtoReg_W <= 0;
             Valid_W <= 0;
+            Funct3_W <= 0;  // for load/store instruction
         end
         else begin
             Instr_W <= Instr_M;
@@ -352,12 +369,67 @@ module RV #(
             RegWrite_W <= RegWrite_M;
             MemtoReg_W <= MemtoReg_M;
             Valid_W <= Valid_M;
+            Funct3_W <= Funct3_M;   // for load/store instruction
         end
     end
 
     assign ALUResult = ALUResult_M;
-    assign WriteData_out = ForwardM ? WD_W : WriteData_M;
-    assign MemWrite_out = {4{Valid_M & MemWrite_M & ~RESET}};
+
+    //old: before adding load/store instruction support
+    // assign WriteData_out = ForwardM ? WD_W : WriteData_M;
+    // assign MemWrite_out = {4{Valid_M & MemWrite_M & ~RESET}};
+
+    //new: after adding load/store instruction support
+    assign MemWriteEn_M = Valid_M & MemWrite_M & ~RESET;
+    assign StoreData_M  = ForwardM ? WD_W : WriteData_M;
+
+    always @(*) begin
+        case (Funct3_M[1:0])
+            2'b00: begin // sb
+                WriteDataAligned_M = {4{StoreData_M[7:0]}};
+                ByteEn_M = 4'b0001 << ALUResult_M[1:0];
+            end
+            2'b01: begin // sh
+                WriteDataAligned_M = {2{StoreData_M[15:0]}};
+                ByteEn_M = ALUResult_M[1] ? 4'b1100 : 4'b0011;
+            end
+            default: begin // sw
+                WriteDataAligned_M = StoreData_M;
+                ByteEn_M = 4'b1111;
+            end
+        endcase
+    end
+
+    assign WriteData_out = WriteDataAligned_M;
+    assign MemWrite_out  = MemWriteEn_M ? ByteEn_M : 4'b0000;
+
+    //Extract and extend load/store data based on Funct3_W
+    //old: non-combinational logic
+    always @(*) begin
+        case (ALUResult_W[1:0])
+            2'b00: LoadByte_W = ReadData_W[7:0];
+            2'b01: LoadByte_W = ReadData_W[15:8];
+            2'b10: LoadByte_W = ReadData_W[23:16];
+            default: LoadByte_W = ReadData_W[31:24];
+        endcase
+        LoadHalf_W = ALUResult_W[1] ? ReadData_W[31:16] : ReadData_W[15:0];
+        
+        case (Funct3_W)
+            3'b000:  LoadData_W = {{24{LoadByte_W[7]}},  LoadByte_W};  // lb
+            3'b001:  LoadData_W = {{16{LoadHalf_W[15]}}, LoadHalf_W};  // lh
+            3'b100:  LoadData_W = {24'b0, LoadByte_W};                 // lbu
+            3'b101:  LoadData_W = {16'b0, LoadHalf_W};                 // lhu
+            default: LoadData_W = ReadData_W;                          // lw
+        endcase
+    end
+    
+    always @(*) begin
+        case (MemtoReg_W)
+            2'b10: WD_W = LoadData_W;
+            default: WD_W = ALUResult_W;
+        endcase
+    end
+
     assign MemRead = Valid_M & RegWrite_M & (MemtoReg_M == 2'b10) & ~RESET;
     assign ReadData_M = ReadData_in;
 
