@@ -172,7 +172,17 @@ module RV #(
         else if (Enable) DebugCycle <= DebugCycle + 1'b1;
     end
 
-    assign DebugState = {339'd0, PC_ALU, PredictedNext_E, DebugCycle,
+    wire [292:0] LastBranchEvent;
+    BranchTrace BranchTrace1(
+        .CLK(CLK), .RESET(RESET), .Enable(Enable), .Recover(Mispredict),
+        .PC_F(PC_F), .PC_D(PC_D), .PC_E(PC_E),
+        .Instr_F(Instr_F), .Instr_D(Instr_D), .Instr_E(Instr_E),
+        .Valid_F(!RESET), .Valid_D(Valid_D),
+        .Predicted(PredictedNext_E), .Actual(PC_ALU), .Taken(|PCSrc_E),
+        .Event(LastBranchEvent)
+    );
+
+    assign DebugState = {46'd0, LastBranchEvent, PC_ALU, PredictedNext_E, DebugCycle,
         DebugStatus, Valid_W, Valid_M, Valid_E, Valid_D, !RESET,
         Instr_W, Instr_M, Instr_E, Instr_D, Instr_F,
         PC_W, PC_M, PC_E, PC_D, PC_F};

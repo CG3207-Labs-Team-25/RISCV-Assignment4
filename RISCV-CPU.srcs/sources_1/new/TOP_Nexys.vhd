@@ -129,9 +129,21 @@ component StepController is
 end component;
 signal CPU_Enable, Step_Pulse : std_logic;
 signal Debug_State : std_logic_vector(767 downto 0);
+component DebugSnapshot is
+    generic (WIDTH : integer := 768);
+    port (SourceCLK, SourceRESET : in std_logic;
+        SourceData : in std_logic_vector(WIDTH-1 downto 0);
+        DisplayCLK, DisplayRESET : in std_logic;
+        Snapshot : out std_logic_vector(WIDTH-1 downto 0);
+        Updated : out std_logic);
+end component;
+signal Display_State : std_logic_vector(767 downto 0);
+signal Snapshot_Updated : std_logic;
+signal Display_Reset_Sync : std_logic_vector(1 downto 0) := "11";
 signal Reset_Sync : std_logic_vector(1 downto 0) := "11";
 attribute ASYNC_REG : string;
 attribute ASYNC_REG of Reset_Sync : signal is "TRUE";
+attribute ASYNC_REG of Display_Reset_Sync : signal is "TRUE";
 
 ----------------------------------------------------------------------------
 -- Wrapper signals
@@ -335,6 +347,20 @@ end process;
 Step1 : StepController
     port map (CLK => CLK, RESET => RESET_EFF, Button => PB(1), Pulse => Step_Pulse);
 CPU_Enable <= Step_Pulse when DEBUGGER_ENABLE else '1';
+
+process(CLK_undiv, RESET_EXT)
+begin
+    if RESET_EXT = '1' then
+        Display_Reset_Sync <= "11";
+    elsif rising_edge(CLK_undiv) then
+        Display_Reset_Sync <= Display_Reset_Sync(0) & '0';
+    end if;
+end process;
+
+Snapshot1 : DebugSnapshot
+    port map (SourceCLK => CLK, SourceRESET => RESET_EFF, SourceData => Debug_State,
+        DisplayCLK => CLK_undiv, DisplayRESET => Display_Reset_Sync(1),
+        Snapshot => Display_State, Updated => Snapshot_Updated);
 
 Wrapper1 : Wrapper
 port map (			
