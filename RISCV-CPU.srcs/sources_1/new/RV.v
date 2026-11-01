@@ -160,6 +160,8 @@ module RV #(
     reg [31:0] HeldRD2_E = 0;
     wire Mispredict;
     wire [31:0] PrPC_F;
+    reg [31:0] PredictedNext_D = 0;
+    reg [31:0] PredictedNext_E = 0;
 
     //for load/store instruction
     reg [2:0] Funct3_M = 0;
@@ -268,11 +270,13 @@ module RV #(
         if (RESET || FlushD) begin
             Instr_D <= 32'h00000013;
             PC_D <= 0;
+            PredictedNext_D <= 0;
             Valid_D <= 0;
         end
         else if (!StallD) begin
             Instr_D <= Instr_F;
             PC_D <= PC_F;
+            PredictedNext_D <= PrPC_F;
             Valid_D <= 1;
         end
     end
@@ -282,6 +286,7 @@ module RV #(
         if (RESET || FlushE) begin
             Instr_E <= 32'h00000013;
             PC_E <= 0;
+            PredictedNext_E <= 0;
             RD1_E <= 0;
             RD2_E <= 0;
             ExtImm_E <= 0;
@@ -301,6 +306,7 @@ module RV #(
         else if (!Busy) begin
             Instr_E <= Instr_D;
             PC_E <= PC_D;
+            PredictedNext_E <= PredictedNext_D;
             RD1_E <= DecodeRD1_D;
             RD2_E <= DecodeRD2_D;
             ExtImm_E <= ExtImm_D;
@@ -528,9 +534,9 @@ module RV #(
                 PC_Base = PC_E;
                 PC_Offset = ExtImm_E;
             end
-            2'b10: PC_Base = ForwardRD1_E;
+            2'b10: PC_Base = Operand1_E;
             2'b11: begin
-                PC_Base = ForwardRD1_E;
+                PC_Base = Operand1_E;
                 PC_Offset = ExtImm_E;
             end
             default: PC_Base = PC_E;
@@ -539,7 +545,7 @@ module RV #(
 
     assign PC_Sum = PC_Base + PC_Offset;
     assign PC_ALU = {PC_Sum[31:1], PC_Sum[0] & ~PCSrc_E[1]};
-    assign WE_PC = !StallF;
+    assign WE_PC = Mispredict || !StallF;
     assign PC_IN = (Mispredict) ? PC_ALU : PrPC_F;
 
     ProgramCounter #(.PC_INIT(PC_INIT)) ProgramCounter1(
@@ -551,14 +557,18 @@ module RV #(
     );
 
     BranchPrediction #(.ADDRESS_BITS(8)) BranchPredictor1(
-        CLK,
-        RESET,
-        PC_ALU, // PCNextE
-        PC_F,
-        PC_E,
-        PCSrc_E,
-        Mispredict,
-        PrPC_F
+        .CLK(CLK),
+        .RESET(RESET),
+        .Enable(1'b1),
+        .Resolve_E(Valid_E && !Busy),
+        .Opcode_E(Instr_E[6:0]),
+        .PCNext_E(PC_ALU),
+        .PredictedNext_E(PredictedNext_E),
+        .PC_F(PC_F),
+        .PC_E(PC_E),
+        .PCSrc_E(PCSrc_E),
+        .Mispredict(Mispredict),
+        .PrPCF(PrPC_F)
     );
 
 endmodule
