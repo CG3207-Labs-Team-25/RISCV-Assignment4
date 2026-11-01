@@ -55,7 +55,7 @@ endmodule
 module test_Wrapper_Prediction;
     reg CLK = 0, RESET = 1;
     integer i, cycles = 0, correct = 0, misses = 0;
-    Wrapper dut(.CLK(CLK), .RESET(RESET), .DIP(16'd0), .PB(3'd0),
+    Wrapper dut(.CLK(CLK), .Enable(1'b1), .RESET(RESET), .DIP(16'd0), .PB(3'd0),
         .UART_TX_ready(1'b1), .UART_RX(8'd0), .UART_RX_valid(1'b0),
         .ACCEL_Data(32'd0), .ACCEL_DReady(1'b0));
     always #5 CLK = ~CLK;

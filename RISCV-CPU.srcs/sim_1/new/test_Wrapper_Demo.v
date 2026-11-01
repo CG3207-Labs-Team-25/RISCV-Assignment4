@@ -18,7 +18,7 @@ module test_Wrapper_Demo;
     Wrapper dut(
         .DIP(DIP), .PB(3'd0), .LED_OUT(LED_OUT), .SEVENSEGHEX(SEVENSEGHEX),
         .UART_TX_ready(1'b1), .UART_RX(8'd0), .UART_RX_valid(1'b0),
-        .ACCEL_Data(32'd0), .ACCEL_DReady(1'b0), .RESET(RESET), .CLK(CLK)
+        .ACCEL_Data(32'd0), .ACCEL_DReady(1'b0), .RESET(RESET), .CLK(CLK), .Enable(1'b1)
     );
 
     always #5 CLK = ~CLK;

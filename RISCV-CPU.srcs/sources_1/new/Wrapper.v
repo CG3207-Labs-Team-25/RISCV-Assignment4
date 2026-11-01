@@ -64,7 +64,8 @@ module Wrapper
 	input [31:0] ACCEL_Data,		// Packed <Temp, X, Y, Z> from MSB to LSB. X, Y, Z are in +/-2g range, 8-bit signed.
 	input ACCEL_DReady,			// Accelerometer data ready signal. Mostly not necessary unless you are reading at a very high rate.
 	input  RESET,				// Active high. Implemented in TOP as not(BTND) or Internal_reset.
-	input  CLK				// Divided Clock from TOP, shown on LED[8].
+	input  CLK,
+    input Enable
 );
 
 // Set the base address according to your memory configuration in RARS. Set the size (Depth bits) appropriately as well.
@@ -273,7 +274,7 @@ reg [31:0] cycle_count = 32'd0; // Max 42 seconds at 100 MHz clock
 always@(posedge CLK) begin
     if(RESET)
         cycle_count <= 0 ;
-    else
+    else if (Enable)
         cycle_count <= cycle_count+1 ;
 end
 
@@ -312,7 +313,8 @@ end
 //----------------------------------------------------------------
 integer j;
 always@(posedge CLK) begin
-	if( MemWrite ) begin
+    if (RESET) SEVENSEGHEX <= 0;
+	else if( MemWrite ) begin
 		for(j=0;j<NUM_COL;j=j+1) begin
 			if(MemWrite_out[j]) begin
 				if (RESET)
@@ -345,6 +347,15 @@ reg autoadvance_row = 1'b0; // good idea to initialize it as the assignment insi
 reg autoadvance_col = 1'b0;
 always@(posedge CLK) begin
 	OLED_Write <=  1'b0;
+    if (RESET) begin
+        OLED_Col <= 0;
+        OLED_Row <= 0;
+        OLED_Data <= 0;
+        OLED_ctrl_reg <= 0;
+        autoadvance_row <= 0;
+        autoadvance_col <= 0;
+    end
+    else begin
 	case (OLED_ctrl_reg[3:0]) // mapping OLED_Write direclty to TOP will write at the fast clock rate. Not an issue, but unnecessary writes
 		4'b0001: 		//vary_col_mode (x)
 			if(MemWrite_out[0] && dec_OLED_COL) begin
@@ -422,6 +433,7 @@ always@(posedge CLK) begin
         OLED_Row <= WriteData_out[5:0] ;
 	if( MemWrite_out[0] && dec_OLED_COL )
         OLED_Col <= WriteData_out[6:0] ;
+    end
            
 end
 
@@ -452,6 +464,7 @@ assign LED_PC = PC[15-N_LEDs_OUT+1 : 2]; // debug showing PC
 RV #(.PC_INIT(PC_INIT)) RV1(
 	CLK,
 	RESET,
+    Enable,
 	Instr,
 	ReadData_in,
 	MemRead,

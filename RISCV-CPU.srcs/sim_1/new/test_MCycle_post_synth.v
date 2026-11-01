@@ -24,7 +24,7 @@ module test_MCycle_post_synth #(parameter SIGNED_CYCLES = 16);
 `else
     MCycle dut(
 `endif
-        .CLK(CLK), .RESET(RESET), .Start(Start), .MCycleOp(MCycleOp),
+        .CLK(CLK), .Enable(1'b1), .RESET(RESET), .Start(Start), .MCycleOp(MCycleOp),
         .Operand1(Operand1), .Operand2(Operand2),
         .Result1(Result1), .Result2(Result2), .Busy(Busy)
     );

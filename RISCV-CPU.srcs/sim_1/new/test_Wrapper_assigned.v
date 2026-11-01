@@ -48,7 +48,7 @@ module test_Wrapper_assigned;
 		.ACCEL_Data(ACCEL_Data),
 		.ACCEL_DReady(ACCEL_DReady),
 		.RESET(RESET),
-		.CLK(CLK)
+		.CLK(CLK), .Enable(1'b1)
 	);
 
 	function [31:0] encode_u;
@@ -197,7 +197,7 @@ module test_Wrapper_MCycle #(
         .ACCEL_Data(32'd0),
         .ACCEL_DReady(1'b0),
         .RESET(RESET),
-        .CLK(CLK)
+        .CLK(CLK), .Enable(1'b1)
     );
 
     always #5 CLK = ~CLK;

@@ -130,7 +130,7 @@ module test_MCycle(
 
     // INSTANTIATE DEVICE/UNIT UNDER TEST (DUT/UUT)
     MCycle #(.width(4)) dut(
-        .CLK(CLK),
+        .CLK(CLK), .Enable(1'b1),
         .RESET(RESET),
         .Start(Start),
         .MCycleOp(MCycleOp),
@@ -476,7 +476,7 @@ module test_MCycle_Booth #(parameter WIDTH = 32);
 
     MCycle #(.width(WIDTH)) dut(
         CLK, RESET, Start, MCycleOp, Operand1, Operand2,
-        Result1, Result2, Busy
+        Result1, Result2, Busy, 1'b1
     );
 
     always #5 CLK = ~CLK;

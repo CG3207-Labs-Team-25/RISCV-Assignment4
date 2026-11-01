@@ -42,6 +42,7 @@ module RV #(
 )(
     input CLK,
     input RESET,
+    input Enable,
     //input Interrupt,      // for optional future use.
     input [31:0] Instr,
     input [31:0] ReadData_in,       // Name mangled to support lb/lbu/lh/lhu
@@ -241,6 +242,7 @@ module RV #(
     assign Operand2_E = OperandsHeld_E ? HeldRD2_E : ForwardRD2_E;
 
     always @(posedge CLK) begin
+        if (RESET || Enable) begin
         if (RESET || !Busy) begin
             OperandsHeld_E <= 0;
             HeldRD1_E <= 0;
@@ -252,8 +254,10 @@ module RV #(
             HeldRD2_E <= ForwardRD2_E;
         end
     end
+    end
 
     always @(posedge CLK) begin
+        if (RESET || Enable) begin
         if (RESET || FlushE) begin
             rs1_E <= 0;
             rs2_E <= 0;
@@ -265,8 +269,10 @@ module RV #(
         if (RESET || Busy) rs2_M <= 0;
         else rs2_M <= rs2_E;
     end
+    end
 
     always @(posedge CLK) begin
+        if (RESET || Enable) begin
         if (RESET || FlushD) begin
             Instr_D <= 32'h00000013;
             PC_D <= 0;
@@ -280,9 +286,11 @@ module RV #(
             Valid_D <= 1;
         end
     end
+    end
 
     //D stage to E stage pipeline registers
     always @(posedge CLK) begin
+        if (RESET || Enable) begin
         if (RESET || FlushE) begin
             Instr_E <= 32'h00000013;
             PC_E <= 0;
@@ -324,9 +332,11 @@ module RV #(
             Valid_E <= Valid_D;
         end
     end
+    end
 
     //E stage to M stage pipeline registers
     always @(posedge CLK) begin
+        if (RESET || Enable) begin
         if (RESET || Busy) begin
             Instr_M <= 32'h00000013;
             PC_M <= 0;
@@ -352,9 +362,11 @@ module RV #(
             Funct3_M <= Funct3_E;   // for load/store instruction
         end
     end
+    end
 
     //M stage to W stage pipeline registers
     always @(posedge CLK) begin
+        if (RESET || Enable) begin
         if (RESET) begin
             Instr_W <= 32'h00000013;
             PC_W <= 0;
@@ -378,6 +390,7 @@ module RV #(
             Funct3_W <= Funct3_M;   // for load/store instruction
         end
     end
+    end
 
     assign ALUResult = ALUResult_M;
 
@@ -386,7 +399,7 @@ module RV #(
     // assign MemWrite_out = {4{Valid_M & MemWrite_M & ~RESET}};
 
     //new: after adding load/store instruction support
-    assign MemWriteEn_M = Valid_M & MemWrite_M & ~RESET;
+    assign MemWriteEn_M = Enable & Valid_M & MemWrite_M & ~RESET;
     assign StoreData_M  = ForwardM ? WD_W : WriteData_M;
 
     always @(*) begin
@@ -429,7 +442,7 @@ module RV #(
         endcase
     end
 
-    assign MemRead = Valid_M & RegWrite_M & (MemtoReg_M == 2'b10) & ~RESET;
+    assign MemRead = Enable & Valid_M & RegWrite_M & (MemtoReg_M == 2'b10) & ~RESET;
     assign ReadData_M = ReadData_in;
 
     always @(*) begin
@@ -453,7 +466,7 @@ module RV #(
 
     RegFile RegFile1(
         CLK,
-        WE,
+        WE && Enable,
         rs1_D,
         rs2_D,
         rd_W,
@@ -523,7 +536,8 @@ module RV #(
         Src_B_E,
         Result1_E,
         Result2_E,
-        Busy
+        Busy,
+        Enable
     );
 
     always @(*) begin
@@ -545,7 +559,7 @@ module RV #(
 
     assign PC_Sum = PC_Base + PC_Offset;
     assign PC_ALU = {PC_Sum[31:1], PC_Sum[0] & ~PCSrc_E[1]};
-    assign WE_PC = Mispredict || !StallF;
+    assign WE_PC = Enable && (Mispredict || !StallF);
     assign PC_IN = (Mispredict) ? PC_ALU : PrPC_F;
 
     ProgramCounter #(.PC_INIT(PC_INIT)) ProgramCounter1(
@@ -559,7 +573,7 @@ module RV #(
     BranchPrediction #(.ADDRESS_BITS(8)) BranchPredictor1(
         .CLK(CLK),
         .RESET(RESET),
-        .Enable(1'b1),
+        .Enable(Enable),
         .Resolve_E(Valid_E && !Busy),
         .Opcode_E(Instr_E[6:0]),
         .PCNext_E(PC_ALU),

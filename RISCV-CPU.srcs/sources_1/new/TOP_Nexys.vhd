@@ -44,6 +44,7 @@ entity TOP is
 			constant N_PBs		: integer := 3;  -- Number of PushButtons. 3 by default
 			-- Order (2 downto 0) -> BTNL, BTNC, BTNR.
 			-- Note that BTNU is used as PAUSE and BTND is used as RESET
+			constant DEBUGGER_ENABLE : boolean := True;
 			constant N_SEVEN_SEG_DIGITs	: integer := 8  -- Number of digits on the 7-seg display. 4 for Basys, 8 for Nexys
 		);
 		Port 
@@ -116,9 +117,19 @@ component Wrapper is
 			ACCEL_Data 			: in STD_LOGIC_VECTOR (31 downto 0);
 			ACCEL_DReady		: in STD_LOGIC;			
 			RESET				: in  STD_LOGIC;
-			CLK					: in  STD_LOGIC
+			CLK : in STD_LOGIC;
+            Enable : in STD_LOGIC
 		);
 end component Wrapper;
+
+component StepController is
+    generic (STABLE_CYCLES : integer := 250000);
+    port (CLK, RESET, Button : in std_logic; Pulse : out std_logic);
+end component;
+signal CPU_Enable, Step_Pulse : std_logic;
+signal Reset_Sync : std_logic_vector(1 downto 0) := "11";
+attribute ASYNC_REG : string;
+attribute ASYNC_REG of Reset_Sync : signal is "TRUE";
 
 ----------------------------------------------------------------------------
 -- Wrapper signals
@@ -291,7 +302,7 @@ LED(N_LEDs_OUT-1 downto 0) 	<= LED_OUT;	-- LED(7 downto 0) Memory-mapped writeab
 ----------------------------------------------------------------	
 -- RESET_EXT <= not RESET; 				-- CPU_RESET (red button) is active low.
 RESET_EXT <= RESET; 					-- BTNU, active high.  
-RESET_EFF <= RESET_INT or RESET_EXT; 	-- Reset sent to the Wrapper
+RESET_EFF <= RESET_INT or Reset_Sync(1); 	-- Reset sent to the Wrapper
 RESET_INT <= '0'; 						-- internal reset, for future use.	
 
 ----------------------------------------------------------------
@@ -310,6 +321,19 @@ pix_data_in <= pix_data(23 downto 19) & pix_data(15 downto 10) & pix_data(7 down
 ----------------------------------------------------------------------------
 -- Wrapper port map
 ----------------------------------------------------------------------------			
+process(CLK, RESET_EXT)
+begin
+    if RESET_EXT = '1' then
+        Reset_Sync <= "11";
+    elsif rising_edge(CLK) then
+        Reset_Sync <= Reset_Sync(0) & '0';
+    end if;
+end process;
+
+Step1 : StepController
+    port map (CLK => CLK, RESET => RESET_EFF, Button => PB(1), Pulse => Step_Pulse);
+CPU_Enable <= Step_Pulse when DEBUGGER_ENABLE else '1';
+
 Wrapper1 : Wrapper
 port map (			
 		DIP 			 	=> 		DIP 			,
@@ -330,7 +354,8 @@ port map (
 		ACCEL_Data			=> 		ACCEL_Data		,
 		ACCEL_DReady		=> 		ACCEL_DReady	,
 		RESET			 	=>     	RESET_EFF		,
-		CLK				 	=>     	CLK	
+		CLK				 	=>     	CLK,
+        Enable => CPU_Enable
 );
 
 ----------------------------------------------------------------------------
@@ -507,7 +532,7 @@ CLK_DIV_PROCESS : process(CLK_undiv)						-- Clock division
 variable clk_counter : std_logic_vector(CLK_DIV_BITS downto 0) := (others => '0');
 begin
 	if CLK_undiv'event and CLK_undiv = '1' then
-		if PAUSE = '0' then
+		if DEBUGGER_ENABLE or PAUSE = '0' then
 			clk_counter := clk_counter+1;
 			CLK <= clk_counter(CLK_DIV_BITS);
 		end if;
